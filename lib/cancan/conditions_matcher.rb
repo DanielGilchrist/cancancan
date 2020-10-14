@@ -70,7 +70,11 @@ module CanCan
       when Range
         value.cover?(attribute)
       when Enumerable
-        value.include?(attribute)
+        if attribute.size == 0
+          value.size == 0
+        else
+          value.include?(attribute)
+        end
       else
         attribute == value
       end
