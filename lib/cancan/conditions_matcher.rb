@@ -70,13 +70,17 @@ module CanCan
       when Range
         value.cover?(attribute)
       when Enumerable
-        if attribute.size == 0
-          value.size == 0
-        else
-          value.include?(attribute)
-        end
+        enumerable_condition_match?(attribute, value)
       else
         attribute == value
+      end
+    end
+
+    def enumerable_condition_match?(attribute, value)
+      if attribute.empty?
+        value.empty?
+      else
+        value.include?(attribute)
       end
     end
 
