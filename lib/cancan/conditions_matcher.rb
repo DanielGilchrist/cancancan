@@ -97,10 +97,7 @@ module CanCan
     end
 
     def conditions_empty?
-      # @conditions might be an ActiveRecord::Associations::CollectionProxy
-      # which it's `==` implementation will fetch all records for comparison
-
-      (@conditions.is_a?(Hash) && @conditions == {}) || @conditions.nil?
+      @conditions == {} || @conditions.nil?
     end
   end
 end

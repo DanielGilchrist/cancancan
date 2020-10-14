@@ -1,5 +1,7 @@
 # frozen_string_literal: true
 
+require_relative 'conditions_extractor.rb'
+require 'cancan/rules_compressor'
 module CanCan
   module ModelAdapters
     class ActiveRecordAdapter < AbstractAdapter
@@ -14,7 +16,6 @@ module CanCan
       def initialize(model_class, rules)
         super
         @compressed_rules = RulesCompressor.new(@rules.reverse).rules_collapsed.reverse
-        StiNormalizer.normalize(@compressed_rules)
         ConditionsNormalizer.normalize(model_class, @compressed_rules)
       end
 

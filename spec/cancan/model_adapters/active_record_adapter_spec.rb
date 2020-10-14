@@ -80,12 +80,6 @@ describe CanCan::ModelAdapters::ActiveRecordAdapter do
       has_many :mentioned_users, through: :mentions, source: :user
       belongs_to :user
       belongs_to :project
-
-      scope :unpopular, lambda {
-        joins('LEFT OUTER JOIN comments ON (comments.post_id = posts.id)')
-          .group('articles.id')
-          .where('COUNT(comments.id) < 3')
-      }
     end
 
     class Mention < ActiveRecord::Base
@@ -107,24 +101,6 @@ describe CanCan::ModelAdapters::ActiveRecordAdapter do
     (@ability = double).extend(CanCan::Ability)
     @article_table = Article.table_name
     @comment_table = Comment.table_name
-  end
-
-  it 'does not fires query with accessible_by() for abilities defined with association' do
-    user = User.create!
-    @ability.can :edit, Article, user.articles.unpopular
-    callback = ->(*) { raise 'No query expected' }
-
-    ActiveSupport::Notifications.subscribed(callback, 'sql.active_record') do
-      Article.accessible_by(@ability, :edit)
-      nil
-    end
-  end
-
-  it 'fetches only the articles that are published' do
-    @ability.can :read, Article, published: true
-    article1 = Article.create!(published: true)
-    Article.create!(published: false)
-    expect(Article.accessible_by(@ability)).to eq([article1])
   end
 
   it 'is for only active record classes' do
@@ -225,14 +201,6 @@ describe CanCan::ModelAdapters::ActiveRecordAdapter do
     comment1 = Comment.create!(article: Article.create!(category: Category.create!(visible: true)))
     Comment.create!(article: Article.create!(category: Category.create!(visible: false)))
     expect(Comment.accessible_by(@ability)).to match_array([comment1])
-    expect(Comment.accessible_by(@ability).count).to eq(1)
-  end
-
-  it 'allows ordering via relations' do
-    @ability.can :read, Comment, article: { category: { visible: true } }
-    comment1 = Comment.create!(article: Article.create!(category: Category.create!(visible: true)))
-    Comment.create!(article: Article.create!(category: Category.create!(visible: false)))
-    expect(Comment.accessible_by(@ability).joins(:article).order('articles.id')).to match_array([comment1])
   end
 
   it 'allows conditions in SQL and merge with hash conditions' do
@@ -563,15 +531,11 @@ WHERE "articles"."published" = #{false_v} AND "articles"."secret" = #{true_v}))
       expect(Article.accessible_by(ability)).to match_array([a1, a2])
       if CanCan::ModelAdapters::ActiveRecordAdapter.version_greater_or_equal?('5.0.0')
         expect(ability.model_adapter(Article, :read)).to generate_sql(%(
-  SELECT "articles".*
+  SELECT DISTINCT "articles".*
   FROM "articles"
-  WHERE "articles"."id" IN
-  (SELECT "articles"."id"
-    FROM "articles"
-    LEFT OUTER JOIN "legacy_mentions" ON "legacy_mentions"."article_id" = "articles"."id"
-    LEFT OUTER JOIN "users" ON "users"."id" = "legacy_mentions"."user_id"
-    WHERE (("users"."name" = 'paperino') OR ("users"."name" = 'pippo')))
-  ))
+  LEFT OUTER JOIN "legacy_mentions" ON "legacy_mentions"."article_id" = "articles"."id"
+  LEFT OUTER JOIN "users" ON "users"."id" = "legacy_mentions"."user_id"
+  WHERE (("users"."name" = 'paperino') OR ("users"."name" = 'pippo'))))
       end
     end
   end
@@ -611,125 +575,6 @@ WHERE "articles"."published" = #{false_v} AND "articles"."secret" = #{true_v}))
       ability.can :read, CustomPkTransaction, custom_pk_user: { gid: user1.gid }
 
       expect(CustomPkTransaction.accessible_by(ability)).to match_array([transaction1])
-    end
-  end
-
-  context 'when a table has json type colum' do
-    before do
-      json_supported =
-        ActiveRecord::Base.connection.respond_to?(:supports_json?) &&
-        ActiveRecord::Base.connection.supports_json?
-
-      skip "Adapter don't support JSON column type" unless json_supported
-
-      ActiveRecord::Schema.define do
-        create_table(:json_transactions) do |t|
-          t.integer :user_id
-          t.json :additional_data
-        end
-      end
-
-      class JsonTransaction < ActiveRecord::Base
-        belongs_to :user
-      end
-    end
-
-    it 'can filter correctly' do
-      user = User.create!
-      transaction = JsonTransaction.create!(user: user)
-
-      ability = Ability.new(user)
-      ability.can :read, JsonTransaction, user: { id: user.id }
-
-      expect(JsonTransaction.accessible_by(ability)).to match_array([transaction])
-    end
-  end
-
-  context 'when STI is in use' do
-    before do
-      ActiveRecord::Schema.define do
-        create_table(:brands) do |t|
-          t.string :name
-        end
-
-        create_table(:vehicles) do |t|
-          t.string :type
-        end
-      end
-
-      class ApplicationRecord < ActiveRecord::Base
-        self.abstract_class = true
-      end
-
-      class Vehicle < ApplicationRecord
-      end
-
-      class Car < Vehicle
-      end
-
-      class Motorbike < Vehicle
-      end
-
-      class Suzuki < Motorbike
-      end
-    end
-
-    it 'recognises rules applied to the base class' do
-      u1 = User.create!(name: 'pippo')
-
-      car = Car.create!
-      motorbike = Motorbike.create!
-
-      ability = Ability.new(u1)
-      ability.can :read, Vehicle
-      expect(Vehicle.accessible_by(ability)).to match_array([car, motorbike])
-      expect(Car.accessible_by(ability)).to match_array([car])
-      expect(Motorbike.accessible_by(ability)).to match_array([motorbike])
-    end
-
-    it 'recognises rules applied to the base class multiple classes deep' do
-      u1 = User.create!(name: 'pippo')
-
-      car = Car.create!
-      motorbike = Motorbike.create!
-      suzuki = Suzuki.create!
-
-      ability = Ability.new(u1)
-      ability.can :read, Vehicle
-      expect(Vehicle.accessible_by(ability)).to match_array([suzuki, car, motorbike])
-      expect(Car.accessible_by(ability)).to match_array([car])
-      expect(Motorbike.accessible_by(ability)).to match_array([suzuki, motorbike])
-      expect(Suzuki.accessible_by(ability)).to match_array([suzuki])
-    end
-
-    it 'recognises rules applied to subclasses' do
-      u1 = User.create!(name: 'pippo')
-      car = Car.create!
-      Motorbike.create!
-
-      ability = Ability.new(u1)
-      ability.can :read, [Car]
-      expect(Vehicle.accessible_by(ability)).to match_array([car])
-      expect(Car.accessible_by(ability)).to eq([car])
-      expect(Motorbike.accessible_by(ability)).to eq([])
-    end
-
-    it 'recognises rules applied to subclasses on 3 level' do
-      u1 = User.create!(name: 'pippo')
-      suzuki = Suzuki.create!
-      Motorbike.create!
-      ability = Ability.new(u1)
-      ability.can :read, [Suzuki]
-      expect(Motorbike.accessible_by(ability)).to eq([suzuki])
-    end
-
-    it 'recognises rules applied to subclass of subclass even with be_able_to' do
-      u1 = User.create!(name: 'pippo')
-      motorbike = Motorbike.create!
-      ability = Ability.new(u1)
-      ability.can :read, [Motorbike]
-      expect(ability).to be_able_to(:read, motorbike)
-      expect(ability).to be_able_to(:read, Suzuki.new)
     end
   end
 end
