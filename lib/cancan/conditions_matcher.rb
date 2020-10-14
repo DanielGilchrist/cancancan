@@ -70,10 +70,18 @@ module CanCan
       when Range
         value.cover?(attribute)
       when Enumerable
-        value.include?(attribute)
+        enumerable_condition_match?(attribute, value)
       else
         attribute == value
       end
+    end
+
+    def enumerable_condition_match?(attribute, value)
+      return true if value.include?(attribute)
+
+      return true if attribute.is_a?(Enumerable) && attribute.empty? && value.empty?
+
+      false
     end
 
     def hash_condition_match?(attribute, value)
