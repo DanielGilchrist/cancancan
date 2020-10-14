@@ -77,11 +77,11 @@ module CanCan
     end
 
     def enumerable_condition_match?(attribute, value)
-      if attribute.empty?
-        value.empty?
-      else
-        value.include?(attribute)
-      end
+      return true if value.include?(attribute)
+
+      return true if attribute.is_a?(Enumerable) && attribute.empty? && value.empty?
+
+      false
     end
 
     def hash_condition_match?(attribute, value)
